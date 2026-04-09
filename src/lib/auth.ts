@@ -10,6 +10,8 @@ const credentialsSchema = z.object({
 });
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  // Required on Vercel (behind proxy/load balancer) to trust x-forwarded-host
+  trustHost: true,
   // No adapter — JWT sessions only. User creation/lookup handled in callbacks.
   providers: [
     GitHub({
