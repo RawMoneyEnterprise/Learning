@@ -1,9 +1,1 @@
-{
-  "buildCommand": "npm run db:deploy && next build",
-  "framework": "nextjs",
-  "git": {
-    "deploymentEnabled": {
-      "main": true
-    }
-  }
-}
+{"buildCommand":"next build","framework":"nextjs","outputDirectory":".next","git":{"deploymentEnabled":{"main":true}}}
