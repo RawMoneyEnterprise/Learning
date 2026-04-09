@@ -4,8 +4,6 @@ import { NextResponse } from "next/server";
 // SSE endpoint for real-time updates
 // Uses Edge Runtime to avoid Vercel serverless 60s timeout
 
-export const runtime = "edge";
-
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) {
