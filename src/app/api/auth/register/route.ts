@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { hash } from "bcryptjs";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
 
 // Derive a short uppercase slug (3–5 chars) from name or email for the company prefix
 function generateSlug(input: string): string {
@@ -32,10 +32,10 @@ export async function POST(request: Request) {
     const { name, email, password } = parsed.data;
 
     // Check if email is already registered
-    const { data: existing } = await db.from("users")
-      .select("id")
-      .eq("email", email)
-      .single() as { data: { id: string } | null };
+    const existing = await prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
 
     if (existing) {
       return NextResponse.json(
@@ -47,37 +47,36 @@ export async function POST(request: Request) {
     const passwordHash = await hash(password, 12);
 
     // Ensure company slug is unique
-    const slug = generateSlug(name || email);
-    const { data: existingCompany } = await db.from("companies")
-      .select("id")
-      .eq("slug", slug)
-      .single() as { data: { id: string } | null };
+    const baseSlug = generateSlug(name || email);
+    const existingCompany = await prisma.company.findUnique({
+      where: { slug: baseSlug },
+      select: { id: true },
+    });
     const finalSlug = existingCompany
-      ? `${slug}${Math.floor(Math.random() * 900) + 100}`
-      : slug;
+      ? `${baseSlug}${Math.floor(Math.random() * 900) + 100}`
+      : baseSlug;
 
-    // Create company then user sequentially (no transaction support over HTTP)
-    const { data: company, error: companyError } = await db.from("companies")
-      .insert({ name: name || email, slug: finalSlug })
-      .select("id")
-      .single() as { data: { id: string } | null; error: unknown };
+    // Create company and user in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      const company = await tx.company.create({
+        data: { name: name || email, slug: finalSlug },
+        select: { id: true },
+      });
 
-    if (companyError || !company) {
-      return NextResponse.json({ error: "Failed to create company" }, { status: 500 });
-    }
+      const user = await tx.user.create({
+        data: {
+          name,
+          email,
+          passwordHash,
+          companyId: company.id,
+        },
+        select: { id: true, email: true, name: true, companyId: true },
+      });
 
-    const { data: user, error: userError } = await db.from("users")
-      .insert({ name, email, password_hash: passwordHash, company_id: company.id })
-      .select("id, email, name, company_id")
-      .single() as { data: { id: string; email: string; name: string; company_id: string } | null; error: unknown };
+      return user;
+    });
 
-    if (userError || !user) {
-      // Best-effort cleanup of orphaned company
-      await db.from("companies").delete().eq("id", company.id);
-      return NextResponse.json({ error: "Failed to create user" }, { status: 500 });
-    }
-
-    return NextResponse.json(user, { status: 201 });
+    return NextResponse.json(result, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
