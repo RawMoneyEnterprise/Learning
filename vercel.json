@@ -1,1 +1,1 @@
-{"buildCommand":"next build","framework":"nextjs","outputDirectory":".next","git":{"deploymentEnabled":{"main":true}}}
+{"buildCommand":"prisma generate && next build","framework":"nextjs","outputDirectory":".next","git":{"deploymentEnabled":{"main":true}}}
