@@ -1,7 +1,7 @@
 import NextAuth from "next-auth";
 import GitHub from "next-auth/providers/github";
 import Credentials from "next-auth/providers/credentials";
-import { db } from "@/lib/db";
+import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 
 const credentialsSchema = z.object({
@@ -25,17 +25,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const parsed = credentialsSchema.safeParse(credentials);
         if (!parsed.success) return null;
 
-        const { data: user } = await db
-          .from("users")
-          .select("id, email, name, image, password_hash")
-          .eq("email", parsed.data.email)
-          .single() as { data: { id: string; email: string; name: string | null; image: string | null; password_hash: string | null } | null };
+        const user = await prisma.user.findUnique({
+          where: { email: parsed.data.email },
+          select: { id: true, email: true, name: true, image: true, passwordHash: true },
+        });
 
-        if (!user?.password_hash) return null;
+        if (!user?.passwordHash) return null;
 
         // Dynamic import keeps bcryptjs out of the edge runtime
         const { compare } = await import("bcryptjs");
-        const valid = await compare(parsed.data.password, user.password_hash);
+        const valid = await compare(parsed.data.password, user.passwordHash);
         if (!valid) return null;
 
         return { id: user.id, email: user.email, name: user.name, image: user.image };
@@ -53,21 +52,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.id = user.id;
         } else if (account.type === "oauth" && token.email) {
           // Look up existing user by email; create one if this is first OAuth sign-in
-          const { data: existing } = await db
-            .from("users")
-            .select("id")
-            .eq("email", token.email)
-            .single() as { data: { id: string } | null };
+          const existing = await prisma.user.findUnique({
+            where: { email: token.email },
+            select: { id: true },
+          });
 
           if (existing) {
             token.id = existing.id;
           } else {
-            const { data: created } = await db
-              .from("users")
-              .insert({ email: token.email, name: token.name ?? null, image: (token as Record<string, unknown>).picture ?? null })
-              .select("id")
-              .single() as { data: { id: string } | null };
-            if (created) token.id = created.id;
+            const created = await prisma.user.create({
+              data: {
+                email: token.email,
+                name: token.name ?? null,
+                image: (token as Record<string, unknown>).picture as string ?? null,
+              },
+              select: { id: true },
+            });
+            token.id = created.id;
           }
         }
       }
